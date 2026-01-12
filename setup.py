@@ -26,6 +26,8 @@ setup(
         'console_scripts': [
             'collect_edges = apriltag_repeatability_eval.nodes.collect_edges:main',
             'localize_and_record = apriltag_repeatability_eval.nodes.localize_and_record:main',
+            'accuracy_test = apriltag_repeatability_eval.nodes.accuracy_test:main',
+            'generate_gt_tag_map = apriltag_repeatability_eval.nodes.generate_gt_tag_map:main',
         ],
     },
 )

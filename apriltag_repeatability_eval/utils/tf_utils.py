@@ -79,11 +79,41 @@ class TFHelper:
             self.node.get_logger().debug(f"TF lookup (latest) failed: {target_frame} -> {source_frame}: {e}")
             return None
     
+    def lookup_se2(self,
+                   target_frame: str,
+                   source_frame: str,
+                   stamp: Time) -> Optional[SE2]:
+        """
+        TF를 SE2로 바로 변환
+        
+        Args:
+            target_frame: 기준 프레임 (예: odom)
+            source_frame: 대상 프레임 (예: base_link)
+            stamp: 시간
+        
+        Returns:
+            SE2 or None
+        """
+        transform = self.lookup_transform_latest(target_frame, source_frame)
+        if transform is None:
+            return None
+        
+        t = transform.transform.translation
+        r = transform.transform.rotation
+        
+        # quaternion -> yaw
+        siny_cosp = 2 * (r.w * r.z + r.x * r.y)
+        cosy_cosp = 1 - 2 * (r.y * r.y + r.z * r.z)
+        yaw = np.arctan2(siny_cosp, cosy_cosp)
+        
+        return SE2(t.x, t.y, yaw)
+    
     def get_tag_pose_se2(self,
                          camera_frame: str,
                          tag_id: int,
                          stamp: Time,
-                         tag_frame_prefix: str = "tag_") -> Optional[Tuple[SE2, TransformStamped]]:
+                         tag_frame_prefix: str = "tag_",
+                         use_latest: bool = True) -> Optional[Tuple[SE2, TransformStamped]]:
         """
         카메라 기준 태그의 SE2 포즈 획득
         
@@ -92,12 +122,17 @@ class TFHelper:
             tag_id: 태그 ID
             stamp: 시간
             tag_frame_prefix: 태그 프레임 접두사 (기본 "tag_")
+            use_latest: True면 항상 latest TF 사용 (실패율 낮음, 약간의 정밀도 손실)
         
         Returns:
             (SE2 포즈, 원본 TransformStamped) or None
         """
         tag_frame = f"{tag_frame_prefix}{tag_id}"
         
+        if use_latest:
+            # latest TF 바로 사용 (실패율 최소화)
+            transform = self.lookup_transform_latest(camera_frame, tag_frame)
+        else:
         # exact time 시도, 실패시 latest로 fallback
         transform = self.lookup_transform(camera_frame, tag_frame, stamp)
         if transform is None:
@@ -105,7 +140,7 @@ class TFHelper:
         if transform is None:
             return None
         
-        # TransformStamped -> SE2
+        # TransformStamped -> SE2 (천장 카메라)
         trans = transform.transform.translation
         rot = transform.transform.rotation
         

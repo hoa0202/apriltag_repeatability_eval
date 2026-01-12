@@ -14,10 +14,20 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
-    pkg_path = os.path.expanduser('~/roboro_april_evaluation_ws/src/apriltag_repeatability_eval')
+    # share 디렉토리에서 workspace root 역산 -> src 폴더로
+    pkg_name = 'apriltag_repeatability_eval'
+    try:
+        share_dir = get_package_share_directory(pkg_name)
+        # share_dir: .../install/pkg_name/share/pkg_name
+        # -> .../install/pkg_name/share -> .../install/pkg_name -> .../install -> ws_root
+        ws_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(share_dir))))
+        pkg_path = os.path.join(ws_root, 'src', pkg_name)
+    except Exception:
+        pkg_path = os.path.expanduser('~/roboro_apriltag_evaluation_ws/src/apriltag_repeatability_eval')
     default_tag_map = os.path.join(pkg_path, 'config', 'tag_map.yaml')
     default_data_dir = os.path.join(pkg_path, 'data')
     
@@ -25,7 +35,7 @@ def generate_launch_description():
         # 카메라 프레임
         DeclareLaunchArgument(
             'camera_frame',
-            default_value='zed_left_camera_optical_frame',
+            default_value='camera_link',
             description='카메라 optical frame'
         ),
         

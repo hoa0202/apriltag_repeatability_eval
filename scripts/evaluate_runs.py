@@ -3,7 +3,11 @@
 평가 스크립트: 10회 run 궤적 비교 (ATE/CTE 분석)
 
 Usage:
+    # CLI 모드
     python3 evaluate_runs.py --ref ./data/run_01.csv --runs ./data/run_*.csv --ds 0.01 --out_dir ./out
+    
+    # 직접 실행 모드 (아래 CONFIG 섹션 수정 후)
+    python3 evaluate_runs.py
 """
 import argparse
 import csv
@@ -13,6 +17,21 @@ from glob import glob
 from typing import List, Dict, Tuple, Optional
 import json
 import os
+
+# ============================================================================
+# CONFIG: 여기서 파라미터 수정 (CLI 인자 없이 실행할 때 사용됨)
+# ============================================================================
+CONFIG = {
+    'ref': './data/run_01.csv',           # 기준 run CSV 경로
+    'runs': './data/run_*.csv',           # 비교할 run CSV들 (glob 패턴)
+    'ds': 0.01,                           # 리샘플링 간격 (m)
+    'out_dir': './out',                   # 출력 디렉토리
+    'pass_cte95': 0.10,                   # CTE 95% 합격 기준 (m), None이면 체크 안함
+    'pass_ate95': None,                   # ATE 95% 합격 기준 (m), None이면 체크 안함
+    'pass_cte_rmse': None,                # CTE RMSE 합격 기준 (m), None이면 체크 안함
+    'pass_ate_rmse': None,                # ATE RMSE 합격 기준 (m), None이면 체크 안함
+}
+# ============================================================================
 
 
 def wrap_angle(theta: float) -> float:
@@ -282,32 +301,44 @@ def plot_boxplot(ate_results: List[Dict], cte_results: List[Dict], run_names: Li
 
 def main():
     parser = argparse.ArgumentParser(description='경로 반복성 평가')
-    parser.add_argument('--ref', required=True, help='기준 run CSV 경로')
-    parser.add_argument('--runs', required=True, nargs='+', help='비교할 run CSV들 (glob 지원)')
-    parser.add_argument('--ds', type=float, default=0.01, help='리샘플링 간격 (m)')
-    parser.add_argument('--out_dir', default='./out', help='출력 디렉토리')
+    parser.add_argument('--ref', default=None, help='기준 run CSV 경로')
+    parser.add_argument('--runs', default=None, nargs='+', help='비교할 run CSV들 (glob 지원)')
+    parser.add_argument('--ds', type=float, default=None, help='리샘플링 간격 (m)')
+    parser.add_argument('--out_dir', default=None, help='출력 디렉토리')
     parser.add_argument('--pass_cte95', type=float, default=None, help='CTE 95% 합격 기준 (m)')
     parser.add_argument('--pass_ate95', type=float, default=None, help='ATE 95% 합격 기준 (m)')
+    parser.add_argument('--pass_cte_rmse', type=float, default=None, help='CTE RMSE 합격 기준 (m)')
+    parser.add_argument('--pass_ate_rmse', type=float, default=None, help='ATE RMSE 합격 기준 (m)')
     
     args = parser.parse_args()
     
+    # CLI 인자가 없으면 CONFIG 사용
+    ref_path = args.ref if args.ref else CONFIG['ref']
+    runs_pattern = args.runs if args.runs else [CONFIG['runs']]
+    ds = args.ds if args.ds else CONFIG['ds']
+    out_dir = args.out_dir if args.out_dir else CONFIG['out_dir']
+    pass_cte95 = args.pass_cte95 if args.pass_cte95 else CONFIG['pass_cte95']
+    pass_ate95 = args.pass_ate95 if args.pass_ate95 else CONFIG['pass_ate95']
+    pass_cte_rmse = args.pass_cte_rmse if args.pass_cte_rmse else CONFIG['pass_cte_rmse']
+    pass_ate_rmse = args.pass_ate_rmse if args.pass_ate_rmse else CONFIG['pass_ate_rmse']
+    
     # 출력 디렉토리 생성
-    os.makedirs(args.out_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     
     # 기준 run 로드
-    print(f"\n기준 run 로드: {args.ref}")
-    ref_raw = load_run_csv(args.ref)
-    ref = resample_by_arc_length(ref_raw, args.ds)
+    print(f"\n기준 run 로드: {ref_path}")
+    ref_raw = load_run_csv(ref_path)
+    ref = resample_by_arc_length(ref_raw, ds)
     print(f"  총 거리: {ref['s'][-1]:.2f} m")
     print(f"  리샘플 포인트: {len(ref['s'])}")
     
     # 비교 run들 로드
     run_files = []
-    for pattern in args.runs:
+    for pattern in runs_pattern:
         run_files.extend(glob(pattern))
     
     # ref 제외
-    run_files = [f for f in run_files if os.path.abspath(f) != os.path.abspath(args.ref)]
+    run_files = [f for f in run_files if os.path.abspath(f) != os.path.abspath(ref_path)]
     run_files = sorted(set(run_files))
     
     print(f"\n비교 run 수: {len(run_files)}")
@@ -318,7 +349,7 @@ def main():
         print(f"  로드: {fp}")
         run_raw = load_run_csv(fp)
         runs_raw.append(run_raw)
-        run_res = resample_by_arc_length(run_raw, args.ds)
+        run_res = resample_by_arc_length(run_raw, ds)
         runs_resampled.append(run_res)
     
     # ATE/CTE 계산
@@ -350,9 +381,9 @@ def main():
     all_cte = np.concatenate([r['cte_abs'] for r in cte_results])
     
     summary = {
-        'ref_file': args.ref,
+        'ref_file': ref_path,
         'run_files': run_files,
-        'ds': args.ds,
+        'ds': ds,
         'total_distance_m': float(ref['s'][-1]),
         'n_runs': len(run_files),
         'ate': {
@@ -374,26 +405,44 @@ def main():
     
     # 합격 판정
     passed = True
-    if args.pass_cte95 is not None:
+    print()
+    
+    if pass_cte95 is not None:
         cte95_m = np.percentile(all_cte, 95)
-        if cte95_m <= args.pass_cte95:
-            print(f"\n✓ CTE 95% 합격: {cte95_m*100:.2f} cm <= {args.pass_cte95*100:.2f} cm")
+        if cte95_m <= pass_cte95:
+            print(f"✓ CTE 95% 합격: {cte95_m*100:.2f} cm <= {pass_cte95*100:.2f} cm")
         else:
-            print(f"\n✗ CTE 95% 불합격: {cte95_m*100:.2f} cm > {args.pass_cte95*100:.2f} cm")
+            print(f"✗ CTE 95% 불합격: {cte95_m*100:.2f} cm > {pass_cte95*100:.2f} cm")
             passed = False
     
-    if args.pass_ate95 is not None:
+    if pass_ate95 is not None:
         ate95_m = np.percentile(all_ate, 95)
-        if ate95_m <= args.pass_ate95:
-            print(f"✓ ATE 95% 합격: {ate95_m*100:.2f} cm <= {args.pass_ate95*100:.2f} cm")
+        if ate95_m <= pass_ate95:
+            print(f"✓ ATE 95% 합격: {ate95_m*100:.2f} cm <= {pass_ate95*100:.2f} cm")
         else:
-            print(f"✗ ATE 95% 불합격: {ate95_m*100:.2f} cm > {args.pass_ate95*100:.2f} cm")
+            print(f"✗ ATE 95% 불합격: {ate95_m*100:.2f} cm > {pass_ate95*100:.2f} cm")
+            passed = False
+    
+    if pass_cte_rmse is not None:
+        cte_rmse_m = np.sqrt(np.mean(all_cte**2))
+        if cte_rmse_m <= pass_cte_rmse:
+            print(f"✓ CTE RMSE 합격: {cte_rmse_m*100:.2f} cm <= {pass_cte_rmse*100:.2f} cm")
+        else:
+            print(f"✗ CTE RMSE 불합격: {cte_rmse_m*100:.2f} cm > {pass_cte_rmse*100:.2f} cm")
+            passed = False
+    
+    if pass_ate_rmse is not None:
+        ate_rmse_m = np.sqrt(np.mean(all_ate**2))
+        if ate_rmse_m <= pass_ate_rmse:
+            print(f"✓ ATE RMSE 합격: {ate_rmse_m*100:.2f} cm <= {pass_ate_rmse*100:.2f} cm")
+        else:
+            print(f"✗ ATE RMSE 불합격: {ate_rmse_m*100:.2f} cm > {pass_ate_rmse*100:.2f} cm")
             passed = False
     
     summary['passed'] = passed
     
     # 결과 저장
-    summary_path = os.path.join(args.out_dir, 'summary.json')
+    summary_path = os.path.join(out_dir, 'summary.json')
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
     print(f"\n요약 저장: {summary_path}")
@@ -404,29 +453,29 @@ def main():
     # 궤적 오버레이
     plot_trajectories(
         runs_resampled, ref,
-        os.path.join(args.out_dir, 'trajectory_overlay.png'),
+        os.path.join(out_dir, 'trajectory_overlay.png'),
         title=f'Trajectory Overlay (n={len(run_files)+1})'
     )
     
     # CTE vs s
     plot_cte_vs_s(
         cte_results, run_names,
-        os.path.join(args.out_dir, 'cte_vs_arclength.png')
+        os.path.join(out_dir, 'cte_vs_arclength.png')
     )
     
     # ATE 히스토그램
     plot_error_histogram(
         ate_results,
-        os.path.join(args.out_dir, 'ate_histogram.png')
+        os.path.join(out_dir, 'ate_histogram.png')
     )
     
     # 박스플롯
     plot_boxplot(
         ate_results, cte_results, run_names,
-        os.path.join(args.out_dir, 'error_boxplot.png')
+        os.path.join(out_dir, 'error_boxplot.png')
     )
     
-    print(f"\n완료! 결과: {args.out_dir}")
+    print(f"\n완료! 결과: {out_dir}")
     
     return 0 if passed else 1
 

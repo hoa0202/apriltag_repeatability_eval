@@ -64,20 +64,19 @@ def se2_between(a: SE2, b: SE2) -> SE2:
 def project_to_se2(translation: Tuple[float, float, float], 
                    quaternion: Tuple[float, float, float, float]) -> SE2:
     """
-    3D pose를 SE2로 투영
+    3D pose를 SE2로 투영 (천장 카메라 기준)
     
     Args:
         translation: (x, y, z)
         quaternion: (qx, qy, qz, qw)
     
     Returns:
-        SE2 포즈 (천장 카메라 가정: z축이 위, xy 평면이 바닥)
+        SE2 포즈 (천장 카메라: z축이 위, xy 평면이 바닥)
     """
     x, y, z = translation
     qx, qy, qz, qw = quaternion
     
     # quaternion -> yaw (z축 회전만 추출)
-    # yaw = atan2(2*(qw*qz + qx*qy), 1 - 2*(qy^2 + qz^2))
     siny_cosp = 2 * (qw * qz + qx * qy)
     cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
     yaw = np.arctan2(siny_cosp, cosy_cosp)

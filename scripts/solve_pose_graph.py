@@ -3,7 +3,11 @@
 Phase A 오프라인 최적화: Pose Graph 최적화로 tag_map.yaml 생성
 
 Usage:
+    # CLI 모드
     python3 solve_pose_graph.py --edges ./data/edges.jsonl --out ./config/tag_map.yaml
+    
+    # 직접 실행 모드 (아래 CONFIG 섹션 수정 후)
+    python3 solve_pose_graph.py
 """
 import argparse
 import json
@@ -13,6 +17,19 @@ from scipy.optimize import least_squares
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional
 import sys
+import os
+
+# ============================================================================
+# CONFIG: 여기서 파라미터 수정 (CLI 인자 없이 실행할 때 사용됨)
+# ============================================================================
+CONFIG = {
+    'edges': './data/edges.jsonl',        # edges.jsonl 파일 경로
+    'out': './config/tag_map.yaml',       # 출력 tag_map.yaml 경로
+    'k_theta': 0.5,                       # 각도 스케일 계수
+    'ref_tag': 0,                         # 기준 태그 ID (없으면 최소 ID로 자동 대체)
+    'quiet': False,                       # True면 출력 최소화
+}
+# ============================================================================
 
 
 def wrap_angle(theta: float) -> float:
@@ -266,34 +283,40 @@ class PoseGraphSolver:
 
 def main():
     parser = argparse.ArgumentParser(description='Pose Graph 최적화로 tag_map.yaml 생성')
-    parser.add_argument('--edges', required=True, help='edges.jsonl 파일 경로')
-    parser.add_argument('--out', required=True, help='출력 tag_map.yaml 경로')
-    parser.add_argument('--k_theta', type=float, default=0.5, help='각도 스케일 계수')
-    parser.add_argument('--ref_tag', type=int, default=0, help='기준 태그 ID')
+    parser.add_argument('--edges', default=None, help='edges.jsonl 파일 경로')
+    parser.add_argument('--out', default=None, help='출력 tag_map.yaml 경로')
+    parser.add_argument('--k_theta', type=float, default=None, help='각도 스케일 계수')
+    parser.add_argument('--ref_tag', type=int, default=None, help='기준 태그 ID')
     parser.add_argument('--quiet', action='store_true', help='출력 최소화')
     
     args = parser.parse_args()
     
-    solver = PoseGraphSolver(k_theta=args.k_theta)
-    solver.ref_tag_id = args.ref_tag
+    # CLI 인자가 없으면 CONFIG 사용
+    edges_path = args.edges if args.edges else CONFIG['edges']
+    out_path = args.out if args.out else CONFIG['out']
+    k_theta = args.k_theta if args.k_theta else CONFIG['k_theta']
+    ref_tag = args.ref_tag if args.ref_tag is not None else CONFIG['ref_tag']
+    quiet = args.quiet or CONFIG['quiet']
+    
+    solver = PoseGraphSolver(k_theta=k_theta)
+    solver.ref_tag_id = ref_tag
     
     # 엣지 로드
-    n_edges = solver.load_edges(args.edges)
+    n_edges = solver.load_edges(edges_path)
     
     if n_edges == 0:
         print("ERROR: 엣지가 없습니다.")
         sys.exit(1)
     
     # 최적화
-    tag_map = solver.solve(verbose=not args.quiet)
+    tag_map = solver.solve(verbose=not quiet)
     
     # 저장
-    import os
-    out_dir = os.path.dirname(args.out)
+    out_dir = os.path.dirname(out_path)
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
     
-    solver.save_map(tag_map, args.out)
+    solver.save_map(tag_map, out_path)
 
 
 if __name__ == '__main__':

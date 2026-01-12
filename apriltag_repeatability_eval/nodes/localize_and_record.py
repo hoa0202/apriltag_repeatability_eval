@@ -50,6 +50,11 @@ class LocalizeAndRecordNode(Node):
         self.declare_parameter('publish_path', True)
         self.declare_parameter('path_frame', 'tag_0')  # Path 기준 프레임
         
+        # Odom ground truth 파라미터
+        self.declare_parameter('record_odom', True)
+        self.declare_parameter('odom_frame', 'odom')
+        self.declare_parameter('base_frame', 'base_link')
+        
         # 파라미터 가져오기
         self.camera_frame = self.get_parameter('camera_frame').value
         self.tag_frame_prefix = self.get_parameter('tag_frame_prefix').value
@@ -76,6 +81,15 @@ class LocalizeAndRecordNode(Node):
         self.debug = self.get_parameter('debug').value
         self.publish_path = self.get_parameter('publish_path').value
         self.path_frame = self.get_parameter('path_frame').value
+        
+        # Odom 설정
+        self.record_odom = self.get_parameter('record_odom').value
+        self.odom_frame = self.get_parameter('odom_frame').value
+        self.base_frame = self.get_parameter('base_frame').value
+        
+        # Odom 기준점 (첫 프레임에서 설정)
+        self.odom_origin: Optional[SE2] = None
+        self.apriltag_origin: Optional[SE2] = None
         
         # TF 헬퍼
         self.tf_helper = TFHelper(self)
@@ -166,6 +180,10 @@ class LocalizeAndRecordNode(Node):
         # CSV 헤더 작성
         with open(self.out_csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
+            if self.record_odom:
+                writer.writerow(['t', 'x', 'y', 'yaw', 'odom_x', 'odom_y', 'odom_yaw', 
+                               'error_x', 'error_y', 'error_dist', 'tags_used', 'quality'])
+            else:
             writer.writerow(['t', 'x', 'y', 'yaw', 'tags_used', 'quality'])
     
     def detection_callback(self, msg: AprilTagDetectionArray):
@@ -235,11 +253,41 @@ class LocalizeAndRecordNode(Node):
         fused_pose = se2_weighted_average(poses, weights)
         avg_quality = sum(weights) / len(weights)
         
-        # 3) CSV 기록
-        self._write_record(timestamp, fused_pose, tags_used, avg_quality)
+        # 3) Odom lookup (ground truth)
+        odom_pose = None
+        error_info = None
+        if self.record_odom:
+            odom_result = self.tf_helper.lookup_se2(self.odom_frame, self.base_frame, stamp)
+            if odom_result is not None:
+                odom_pose = odom_result
+                
+                # 첫 프레임: 기준점 설정
+                if self.odom_origin is None:
+                    self.odom_origin = odom_pose
+                    self.apriltag_origin = fused_pose
+                
+                # 상대 위치 계산
+                from ..utils.se2 import se2_between
+                rel_apriltag = se2_between(self.apriltag_origin, fused_pose)
+                rel_odom = se2_between(self.odom_origin, odom_pose)
+                
+                # 좌표계 변환 (camera_link -> base_link)
+                scale = 1.0 / 1.84
+                rel_apriltag_x = -rel_apriltag.y * scale
+                rel_apriltag_y = rel_apriltag.x * scale
+                
+                # 오차 계산
+                import math
+                error_x = rel_apriltag_x - rel_odom.x
+                error_y = rel_apriltag_y - rel_odom.y
+                error_dist = math.sqrt(error_x**2 + error_y**2)
+                error_info = (rel_odom.x, rel_odom.y, rel_odom.theta, error_x, error_y, error_dist)
+        
+        # 4) CSV 기록
+        self._write_record(timestamp, fused_pose, tags_used, avg_quality, error_info)
         self.record_count += 1
         
-        # 4) Path publish
+        # 5) Path publish
         if self.publish_path:
             self._add_to_path(msg.header.stamp, fused_pose)
         
@@ -247,19 +295,40 @@ class LocalizeAndRecordNode(Node):
         if self.debug and self.frame_count % 30 == 0:
             avg_tags = sum(self.tags_per_frame[-100:]) / min(len(self.tags_per_frame), 100)
             fail_rate = self.tf_helper.get_fail_rate() * 100
+            
+            error_str = ""
+            if error_info is not None:
+                error_str = f", Error: {error_info[5]*100:.1f}cm"
+            
             self.get_logger().info(
                 f"[Frame {self.frame_count}] "
-                f"Pos: ({fused_pose.x:.3f}, {fused_pose.y:.3f}, {fused_pose.theta:.3f}), "
+                f"Pos: ({fused_pose.x:.3f}, {fused_pose.y:.3f}), "
                 f"Tags: {len(pose_candidates)}, "
-                f"Records: {self.record_count}, "
-                f"Avg tags: {avg_tags:.1f}, "
-                f"TF fail: {fail_rate:.1f}%"
+                f"Records: {self.record_count}{error_str}"
             )
     
-    def _write_record(self, timestamp: float, pose: SE2, tags_used: List[str], quality: float):
+    def _write_record(self, timestamp: float, pose: SE2, tags_used: List[str], quality: float, 
+                      error_info: Optional[tuple] = None):
         """CSV에 기록 추가"""
         with open(self.out_csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
+            if self.record_odom and error_info is not None:
+                odom_x, odom_y, odom_yaw, error_x, error_y, error_dist = error_info
+                writer.writerow([
+                    f"{timestamp:.6f}",
+                    f"{pose.x:.6f}",
+                    f"{pose.y:.6f}",
+                    f"{pose.theta:.6f}",
+                    f"{odom_x:.6f}",
+                    f"{odom_y:.6f}",
+                    f"{odom_yaw:.6f}",
+                    f"{error_x:.6f}",
+                    f"{error_y:.6f}",
+                    f"{error_dist:.6f}",
+                    "|".join(tags_used),
+                    f"{quality:.4f}"
+                ])
+            else:
             writer.writerow([
                 f"{timestamp:.6f}",
                 f"{pose.x:.6f}",

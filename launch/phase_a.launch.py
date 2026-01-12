@@ -10,17 +10,27 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
-    pkg_path = os.path.expanduser('~/roboro_april_evaluation_ws/src/apriltag_repeatability_eval')
+    # share 디렉토리에서 workspace root 역산 -> src 폴더로
+    pkg_name = 'apriltag_repeatability_eval'
+    try:
+        share_dir = get_package_share_directory(pkg_name)
+        # share_dir: .../install/pkg_name/share/pkg_name
+        # -> .../install/pkg_name/share -> .../install/pkg_name -> .../install -> ws_root
+        ws_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(share_dir))))
+        pkg_path = os.path.join(ws_root, 'src', pkg_name)
+    except Exception:
+        pkg_path = os.path.expanduser('~/roboro_apriltag_evaluation_ws/src/apriltag_repeatability_eval')
     default_out = os.path.join(pkg_path, 'data', 'edges.jsonl')
     
     return LaunchDescription([
         # 카메라 프레임
         DeclareLaunchArgument(
             'camera_frame',
-            default_value='zed_left_camera_optical_frame',
+            default_value='camera_link',
             description='카메라 optical frame'
         ),
         
@@ -38,6 +48,13 @@ def generate_launch_description():
             description='AprilTag detections 토픽'
         ),
         
+        # odom 토픽
+        DeclareLaunchArgument(
+            'odom_topic',
+            default_value='/odom',
+            description='Odometry 토픽 (정지 감지용)'
+        ),
+        
         # collect_edges 노드
         Node(
             package='apriltag_repeatability_eval',
@@ -47,6 +64,7 @@ def generate_launch_description():
                 'camera_frame': LaunchConfiguration('camera_frame'),
                 'tag_frame_prefix': 'tag_',
                 'detections_topic': LaunchConfiguration('detections_topic'),
+                'odom_topic': LaunchConfiguration('odom_topic'),
                 'out_edges': LaunchConfiguration('out_edges'),
                 'dm_min': 40.0,
                 'dm_good': 70.0,
