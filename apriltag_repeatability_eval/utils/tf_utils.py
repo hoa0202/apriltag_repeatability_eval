@@ -133,10 +133,11 @@ class TFHelper:
             # latest TF 바로 사용 (실패율 최소화)
             transform = self.lookup_transform_latest(camera_frame, tag_frame)
         else:
-        # exact time 시도, 실패시 latest로 fallback
-        transform = self.lookup_transform(camera_frame, tag_frame, stamp)
-        if transform is None:
-            transform = self.lookup_transform_latest(camera_frame, tag_frame)
+            # exact time 시도, 실패시 latest로 fallback
+            transform = self.lookup_transform(camera_frame, tag_frame, stamp)
+            if transform is None:
+                transform = self.lookup_transform_latest(camera_frame, tag_frame)
+        
         if transform is None:
             return None
         

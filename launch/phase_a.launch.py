@@ -34,6 +34,13 @@ def generate_launch_description():
             description='카메라 optical frame'
         ),
         
+        # 목표 정밀도 (mm)
+        DeclareLaunchArgument(
+            'target_std_mm',
+            default_value='1.0',
+            description='목표 표준편차 (mm) - 멀리 있는 태그 쌍은 더 큰 값 필요'
+        ),
+        
         # 출력 파일
         DeclareLaunchArgument(
             'out_edges',
@@ -66,6 +73,7 @@ def generate_launch_description():
                 'detections_topic': LaunchConfiguration('detections_topic'),
                 'odom_topic': LaunchConfiguration('odom_topic'),
                 'out_edges': LaunchConfiguration('out_edges'),
+                'target_std_mm': LaunchConfiguration('target_std_mm'),
                 'dm_min': 40.0,
                 'dm_good': 70.0,
                 'px_min': 70.0,

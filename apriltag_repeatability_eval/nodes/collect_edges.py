@@ -118,6 +118,9 @@ class CollectEdgesNode(Node):
         # Edge 샘플 저장: (tag_i, tag_j) -> list of (dx, dy, dtheta, weight)
         self.edge_samples = defaultdict(list)
         
+        # 충분한 품질에 도달한 edge (freeze)
+        self.sufficient_edges = set()
+        
         # QoS 설정 (센서 데이터)
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -235,11 +238,19 @@ class CollectEdgesNode(Node):
                 ):
                     continue
                 
-                # 샘플 저장 (메모리)
+                # 샘플 저장 (메모리) - 이미 충분한 edge는 skip
                 edge_key = (id_i, id_j)
+                if edge_key in self.sufficient_edges:
+                    continue
+                    
                 self.edge_samples[edge_key].append(
                     (rel_pose.x, rel_pose.y, rel_pose.theta, edge_weight)
                 )
+                
+                # 충분한 품질 도달 시 freeze
+                stats = self._compute_edge_stats(self.edge_samples[edge_key])
+                if self._is_edge_sufficient(stats):
+                    self.sufficient_edges.add(edge_key)
     
     def _compute_edge_stats(self, samples):
         """Edge 샘플의 통계 계산 (outlier 제거 후)"""

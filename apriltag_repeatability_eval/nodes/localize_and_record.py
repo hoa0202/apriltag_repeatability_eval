@@ -184,7 +184,7 @@ class LocalizeAndRecordNode(Node):
                 writer.writerow(['t', 'x', 'y', 'yaw', 'odom_x', 'odom_y', 'odom_yaw', 
                                'error_x', 'error_y', 'error_dist', 'tags_used', 'quality'])
             else:
-            writer.writerow(['t', 'x', 'y', 'yaw', 'tags_used', 'quality'])
+                writer.writerow(['t', 'x', 'y', 'yaw', 'tags_used', 'quality'])
     
     def detection_callback(self, msg: AprilTagDetectionArray):
         """detection 메시지 콜백"""
@@ -329,14 +329,14 @@ class LocalizeAndRecordNode(Node):
                     f"{quality:.4f}"
                 ])
             else:
-            writer.writerow([
-                f"{timestamp:.6f}",
-                f"{pose.x:.6f}",
-                f"{pose.y:.6f}",
-                f"{pose.theta:.6f}",
-                "|".join(tags_used),
-                f"{quality:.4f}"
-            ])
+                writer.writerow([
+                    f"{timestamp:.6f}",
+                    f"{pose.x:.6f}",
+                    f"{pose.y:.6f}",
+                    f"{pose.theta:.6f}",
+                    "|".join(tags_used),
+                    f"{quality:.4f}"
+                ])
     
     def _add_to_path(self, stamp, pose: SE2):
         """Path 메시지에 포즈 추가 + publish"""
